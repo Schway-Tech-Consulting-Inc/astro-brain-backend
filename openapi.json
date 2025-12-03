@@ -162,6 +162,105 @@
         },
         "required": ["date", "time", "timezone", "lat", "lon"]
       },
+      "Chart": {
+        "type": "object",
+        "properties": {
+          "asc": {
+            "type": "number",
+            "description": "Ascendant longitude in degrees"
+          },
+          "mc": {
+            "type": "number",
+            "description": "Midheaven longitude in degrees"
+          },
+          "planets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "lon": {
+                  "type": "number",
+                  "description": "Ecliptic longitude in degrees"
+                },
+                "retrograde": {
+                  "type": "boolean",
+                  "description": "True if planet is retrograde"
+                }
+              },
+              "required": ["lon", "retrograde"]
+            },
+            "description": "Planet positions by name (sun, moon, mercury, venus, ...)"
+          },
+          "houses": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Whole-sign house cusps in degrees, keys '1'..'12'"
+          },
+          "true_node": {
+            "type": "object",
+            "properties": {
+              "lon": {
+                "type": "number"
+              },
+              "retrograde": {
+                "type": "boolean"
+              }
+            },
+            "required": ["lon", "retrograde"]
+          },
+          "moon_phase": {
+            "type": "object",
+            "properties": {
+              "angle": {
+                "type": "number",
+                "description": "Elongation angle between Sun and Moon"
+              },
+              "illumination": {
+                "type": "number",
+                "description": "Moon illumination fraction (0–1)"
+              },
+              "phase_name": {
+                "type": "string",
+                "description": "Moon phase label"
+              }
+            },
+            "required": ["angle", "illumination", "phase_name"]
+          },
+          "aspects": {
+            "type": "array",
+            "description": "List of aspects between planets in this chart",
+            "items": {
+              "type": "object",
+              "properties": {
+                "p1": {
+                  "type": "string",
+                  "description": "First planet name"
+                },
+                "p2": {
+                  "type": "string",
+                  "description": "Second planet name"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Aspect type (conjunction, sextile, square, trine, opposition)"
+                },
+                "angle": {
+                  "type": "number",
+                  "description": "Exact aspect angle (0, 60, 90, 120, 180)"
+                },
+                "orb": {
+                  "type": "number",
+                  "description": "Difference from exact angle in degrees"
+                }
+              },
+              "required": ["p1", "p2", "type", "angle", "orb"]
+            }
+          }
+        },
+        "required": ["asc", "mc", "planets", "houses", "true_node", "moon_phase", "aspects"]
+      },
       "ChartResponse": {
         "type": "object",
         "properties": {
@@ -173,103 +272,7 @@
             "$ref": "#/components/schemas/ChartRequest"
           },
           "chart": {
-            "type": "object",
-            "properties": {
-              "asc": {
-                "type": "number",
-                "description": "Ascendant longitude in degrees"
-              },
-              "mc": {
-                "type": "number",
-                "description": "Midheaven longitude in degrees"
-              },
-              "planets": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "object",
-                  "properties": {
-                    "lon": {
-                      "type": "number",
-                      "description": "Ecliptic longitude in degrees"
-                    },
-                    "retrograde": {
-                      "type": "boolean",
-                      "description": "True if planet is retrograde"
-                    }
-                  },
-                  "required": ["lon", "retrograde"]
-                },
-                "description": "Planet positions by name (sun, moon, mercury, venus, ...)"
-              },
-              "houses": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "description": "Whole-sign house cusps in degrees, keys '1'..'12'"
-              },
-              "true_node": {
-                "type": "object",
-                "properties": {
-                  "lon": {
-                    "type": "number"
-                  },
-                  "retrograde": {
-                    "type": "boolean"
-                  }
-                },
-                "required": ["lon", "retrograde"]
-              },
-              "moon_phase": {
-                "type": "object",
-                "properties": {
-                  "angle": {
-                    "type": "number",
-                    "description": "Elongation angle between Sun and Moon"
-                  },
-                  "illumination": {
-                    "type": "number",
-                    "description": "Moon illumination fraction (0–1)"
-                  },
-                  "phase_name": {
-                    "type": "string",
-                    "description": "Moon phase label"
-                  }
-                },
-                "required": ["angle", "illumination", "phase_name"]
-              },
-              "aspects": {
-                "type": "array",
-                "description": "List of aspects between planets in this chart",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "p1": {
-                      "type": "string",
-                      "description": "First planet name"
-                    },
-                    "p2": {
-                      "type": "string",
-                      "description": "Second planet name"
-                    },
-                    "type": {
-                      "type": "string",
-                      "description": "Aspect type (conjunction, sextile, square, trine, opposition)"
-                    },
-                    "angle": {
-                      "type": "number",
-                      "description": "Exact aspect angle (0, 60, 90, 120, 180)"
-                    },
-                    "orb": {
-                      "type": "number",
-                      "description": "Difference from exact angle in degrees"
-                    }
-                  },
-                  "required": ["p1", "p2", "type", "angle", "orb"]
-                }
-              }
-            },
-            "required": ["asc", "mc", "planets", "houses", "true_node", "moon_phase", "aspects"]
+            "$ref": "#/components/schemas/Chart"
           }
         },
         "required": ["engine", "input", "chart"]
@@ -305,9 +308,10 @@
                 "$ref": "#/components/schemas/ChartRequest"
               },
               "chart": {
-                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+                "$ref": "#/components/schemas/Chart"
               }
-            }
+            },
+            "required": ["input", "chart"]
           },
           "transit": {
             "type": "object",
@@ -316,9 +320,10 @@
                 "$ref": "#/components/schemas/ChartRequest"
               },
               "chart": {
-                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+                "$ref": "#/components/schemas/Chart"
               }
-            }
+            },
+            "required": ["input", "chart"]
           },
           "aspects": {
             "type": "array",
@@ -380,9 +385,10 @@
                 "$ref": "#/components/schemas/ChartRequest"
               },
               "chart": {
-                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+                "$ref": "#/components/schemas/Chart"
               }
-            }
+            },
+            "required": ["input", "chart"]
           },
           "person2": {
             "type": "object",
@@ -391,9 +397,10 @@
                 "$ref": "#/components/schemas/ChartRequest"
               },
               "chart": {
-                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+                "$ref": "#/components/schemas/Chart"
               }
-            }
+            },
+            "required": ["input", "chart"]
           },
           "aspects": {
             "type": "array",
@@ -448,9 +455,10 @@
                 "$ref": "#/components/schemas/ChartRequest"
               },
               "chart": {
-                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+                "$ref": "#/components/schemas/Chart"
               }
-            }
+            },
+            "required": ["input", "chart"]
           },
           "person2": {
             "type": "object",
@@ -459,12 +467,13 @@
                 "$ref": "#/components/schemas/ChartRequest"
               },
               "chart": {
-                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+                "$ref": "#/components/schemas/Chart"
               }
-            }
+            },
+            "required": ["input", "chart"]
           },
           "composite": {
-            "$ref": "#/components/schemas/ChartResponse/properties/chart"
+            "$ref": "#/components/schemas/Chart"
           }
         },
         "required": ["engine", "person1", "person2", "composite"]
