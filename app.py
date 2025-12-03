@@ -6,6 +6,7 @@ import logging
 
 from dateutil import tz
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from skyfield.api import Loader
 from skyfield.framelib import ecliptic_frame
@@ -223,7 +224,7 @@ def compute_planets(t) -> Dict[str, Dict[str, Any]]:
         lon_future = lon_future_angle.degrees % 360.0
 
         diff = (lon_future - lon_past + 540.0) % 360.0 - 180.0
-        retrograde = diff < 0
+        retrograde = bool(diff < 0)  # Convert numpy.bool to Python bool
 
         planets[name] = {"lon": lon_deg, "retrograde": retrograde}
 
@@ -454,7 +455,7 @@ def compute_composite_planets(
             continue
         d2 = p2_planets[name]
         comp_lon = midpoint_lon(d1["lon"], d2["lon"])
-        composite[name] = {"lon": comp_lon, "retrograde": False}
+        composite[name] = {"lon": comp_lon, "retrograde": False}  # Already Python bool
     return composite
 
 
@@ -631,11 +632,12 @@ def generate_chart(payload: ChartRequest):
     Single chart endpoint used by the custom GPT.
     """
     chart_obj = build_chart(payload)
-    return {
+    result = {
         "engine": "skyfield_de421",
         "input": payload.model_dump(),
         "chart": chart_obj,
     }
+    return JSONResponse(content=result)
 
 
 # -------------------------------------------------------------------
