@@ -14,7 +14,7 @@ from skyfield.framelib import ecliptic_frame
 
 app = FastAPI(
     title="Astro Brain Backend",
-    version="0.5.0",
+    version="0.6.0",
     description="Backend service that powers the custom GPT for astrology using Skyfield + DE421.",
 )
 
@@ -48,19 +48,16 @@ OBLIQUITY_DEG = 23.4392911  # mean obliquity of the ecliptic
 
 class ChartRequest(BaseModel):
     """
-    Input for the /chart endpoint and for nested natal/transit charts.
+    Input for /chart and nested chart requests.
     """
-    date: str = Field(..., example="2025-11-27")  # YYYY-MM-DD
-    time: str = Field(..., example="12:00")       # HH:MM (24h)
+    date: str = Field(..., example="1990-05-14")  # YYYY-MM-DD
+    time: str = Field(..., example="15:30")       # HH:MM (24h)
     timezone: str = Field(..., example="UTC")     # IANA timezone name
     lat: float = Field(..., example=51.5074)      # latitude in degrees
     lon: float = Field(..., example=-0.1278)      # longitude in degrees (east +, west -)
 
 
 class ChartResponse(BaseModel):
-    """
-    Output for /chart.
-    """
     engine: str
     input: Dict[str, Any]
     chart: Dict[str, Any]
@@ -69,9 +66,6 @@ class ChartResponse(BaseModel):
 class TransitRequest(BaseModel):
     """
     Input for /transits.
-    natal: natal chart details
-    transit: transit chart details (often 'now', but can be any date)
-    max_orb: maximum orb for transit aspects (in degrees)
     """
     natal: ChartRequest
     transit: ChartRequest
@@ -79,13 +73,41 @@ class TransitRequest(BaseModel):
 
 
 class TransitResponse(BaseModel):
-    """
-    Output for /transits.
-    """
     engine: str
     natal: Dict[str, Any]
     transit: Dict[str, Any]
     aspects: List[Dict[str, Any]]
+
+
+class SynastryRequest(BaseModel):
+    """
+    Input for /synastry.
+    """
+    person1: ChartRequest
+    person2: ChartRequest
+    max_orb: float = Field(default=4.0, example=4.0)
+
+
+class SynastryResponse(BaseModel):
+    engine: str
+    person1: Dict[str, Any]
+    person2: Dict[str, Any]
+    aspects: List[Dict[str, Any]]
+
+
+class CompositeRequest(BaseModel):
+    """
+    Input for /composite.
+    """
+    person1: ChartRequest
+    person2: ChartRequest
+
+
+class CompositeResponse(BaseModel):
+    engine: str
+    person1: Dict[str, Any]
+    person2: Dict[str, Any]
+    composite: Dict[str, Any]
 
 
 # -------------------------------------------------------------------
@@ -271,7 +293,7 @@ def compute_moon_phase(sun_lon: float, moon_lon: float) -> Dict[str, Any]:
 
 
 # -------------------------------------------------------------------
-# Aspects (within a single chart + transits)
+# Aspects (within chart, transits, synastry)
 # -------------------------------------------------------------------
 
 MAJOR_ASPECTS = {
@@ -333,18 +355,7 @@ def compute_transit_aspects(
     max_orb: float = 2.0,
 ) -> List[Dict[str, Any]]:
     """
-    Compute aspects between natal and transit planets.
-    Returns:
-      [
-        {
-          "natal": "sun",
-          "transit": "saturn",
-          "type": "square",
-          "angle": 90,
-          "orb": 1.2
-        },
-        ...
-      ]
+    Aspects between natal and transit planets.
     """
     aspects: List[Dict[str, Any]] = []
 
@@ -363,14 +374,106 @@ def compute_transit_aspects(
     return aspects
 
 
+def compute_synastry_aspects(
+    p1_planets: Dict[str, Dict[str, float]],
+    p2_planets: Dict[str, Dict[str, float]],
+    max_orb: float = 4.0,
+) -> List[Dict[str, Any]]:
+    """
+    Aspects between two natal charts (synastry).
+    """
+    aspects: List[Dict[str, Any]] = []
+
+    for name1, d1 in p1_planets.items():
+        for name2, d2 in p2_planets.items():
+            a = d1["lon"]
+            b = d2["lon"]
+            asp = aspect_between(a, b, max_orb=max_orb)
+            if asp:
+                aspects.append({
+                    "p1": name1,
+                    "p2": name2,
+                    **asp
+                })
+    return aspects
+
+
 # -------------------------------------------------------------------
-# Core chart builder (used by /chart and /transits)
+# Composite helpers
+# -------------------------------------------------------------------
+
+def midpoint_lon(a: float, b: float) -> float:
+    """
+    Circular midpoint between two longitudes.
+    """
+    diff = (b - a + 540.0) % 360.0 - 180.0
+    return (a + diff / 2.0) % 360.0
+
+
+def compute_composite_planets(
+    p1_planets: Dict[str, Dict[str, float]],
+    p2_planets: Dict[str, Dict[str, float]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Composite planets as midpoint of longitudes.
+    Retrograde is usually not meaningful in a composite, so we set False.
+    """
+    composite: Dict[str, Dict[str, Any]] = {}
+    for name, d1 in p1_planets.items():
+        if name not in p2_planets:
+            continue
+        d2 = p2_planets[name]
+        comp_lon = midpoint_lon(d1["lon"], d2["lon"])
+        composite[name] = {"lon": comp_lon, "retrograde": False}
+    return composite
+
+
+def compute_composite_chart(chart1: Dict[str, Any], chart2: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build a composite chart mostly by midpoint:
+    - planets: midpoint of longitudes
+    - asc, mc: midpoint of natal asc/mc
+    - houses: whole-sign from composite asc
+    - true_node: midpoint of node longitudes (retrograde=True)
+    - moon_phase, aspects: recomputed from composite planets
+    """
+    comp_planets = compute_composite_planets(chart1["planets"], chart2["planets"])
+
+    comp_asc = midpoint_lon(chart1["asc"], chart2["asc"])
+    comp_mc = midpoint_lon(chart1["mc"], chart2["mc"])
+
+    comp_houses = compute_whole_sign_houses(comp_asc)
+
+    comp_true_node = {
+        "lon": midpoint_lon(chart1["true_node"]["lon"], chart2["true_node"]["lon"]),
+        "retrograde": True,
+    }
+
+    if "sun" not in comp_planets or "moon" not in comp_planets:
+        raise HTTPException(status_code=500, detail="Composite chart missing Sun or Moon.")
+    comp_moon_phase = compute_moon_phase(comp_planets["sun"]["lon"], comp_planets["moon"]["lon"])
+
+    comp_aspects = compute_chart_aspects(comp_planets)
+
+    return {
+        "asc": comp_asc,
+        "mc": comp_mc,
+        "planets": comp_planets,
+        "houses": comp_houses,
+        "true_node": comp_true_node,
+        "moon_phase": comp_moon_phase,
+        "aspects": comp_aspects,
+    }
+
+
+# -------------------------------------------------------------------
+# Core chart builder (used everywhere)
 # -------------------------------------------------------------------
 
 def build_chart(payload: ChartRequest) -> Dict[str, Any]:
     """
     Build a full chart object (without wrapping in engine/input).
-    Reused by /chart and /transits.
+    Reused by /chart, /transits, /synastry, /composite.
     """
     if not (-90.0 <= payload.lat <= 90.0):
         raise HTTPException(status_code=400, detail="Latitude must be between -90 and 90 degrees.")
@@ -467,4 +570,64 @@ def transits(payload: TransitRequest):
             "chart": transit_chart,
         },
         aspects=aspects,
+    )
+
+
+# -------------------------------------------------------------------
+# /synastry endpoint
+# -------------------------------------------------------------------
+
+@app.post("/synastry", response_model=SynastryResponse)
+def synastry(payload: SynastryRequest):
+    """
+    Compute synastry aspects between two natal charts.
+    """
+    chart1 = build_chart(payload.person1)
+    chart2 = build_chart(payload.person2)
+
+    aspects = compute_synastry_aspects(
+        chart1["planets"],
+        chart2["planets"],
+        max_orb=payload.max_orb,
+    )
+
+    return SynastryResponse(
+        engine="skyfield_de421",
+        person1={
+            "input": payload.person1.dict(),
+            "chart": chart1,
+        },
+        person2={
+            "input": payload.person2.dict(),
+            "chart": chart2,
+        },
+        aspects=aspects,
+    )
+
+
+# -------------------------------------------------------------------
+# /composite endpoint
+# -------------------------------------------------------------------
+
+@app.post("/composite", response_model=CompositeResponse)
+def composite(payload: CompositeRequest):
+    """
+    Compute a composite chart (midpoint method) between two natal charts.
+    """
+    chart1 = build_chart(payload.person1)
+    chart2 = build_chart(payload.person2)
+
+    comp_chart = compute_composite_chart(chart1, chart2)
+
+    return CompositeResponse(
+        engine="skyfield_de421",
+        person1={
+            "input": payload.person1.dict(),
+            "chart": chart1,
+        },
+        person2={
+            "input": payload.person2.dict(),
+            "chart": chart2,
+        },
+        composite=comp_chart,
     )
