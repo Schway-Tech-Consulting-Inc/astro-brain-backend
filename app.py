@@ -571,19 +571,32 @@ def test_chart():
         # Try to build chart
         chart_obj = build_chart(test_payload)
         
-        return {
-            "status": "success",
-            "message": "Chart generation works!",
-            "chart_preview": {
-                "asc": chart_obj.get("asc"),
-                "mc": chart_obj.get("mc"),
-                "planet_count": len(chart_obj.get("planets", {}))
+        # Try to build the full response like the real endpoint does
+        try:
+            response = ChartResponse(
+                engine="skyfield_de421",
+                input=test_payload.model_dump(),
+                chart=chart_obj,
+            )
+            return {
+                "status": "success",
+                "message": "Full response creation works!",
+                "response_type": str(type(response))
             }
-        }
+        except Exception as response_error:
+            import traceback
+            return {
+                "status": "response_error",
+                "message": "Chart builds but response fails",
+                "error_type": type(response_error).__name__,
+                "error_message": str(response_error),
+                "traceback": traceback.format_exc()
+            }
+        
     except Exception as e:
         import traceback
         return {
-            "status": "error",
+            "status": "chart_error",
             "error_type": type(e).__name__,
             "error_message": str(e),
             "traceback": traceback.format_exc()
