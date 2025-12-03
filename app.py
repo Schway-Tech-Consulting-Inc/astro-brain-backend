@@ -14,7 +14,7 @@ from skyfield.framelib import ecliptic_frame
 
 app = FastAPI(
     title="Astro Brain Backend",
-    version="0.6.0",
+    version="0.6.1",
     description="Backend service that powers the custom GPT for astrology using Skyfield + DE421.",
 )
 
@@ -176,15 +176,19 @@ def compute_planets(t) -> Dict[str, Dict[str, Any]]:
     for name, key in PLANET_KEYS.items():
         target = eph[key]
 
-        # Geocentric position
+        # Geocentric position at time t
         astrometric = earth.at(t).observe(target)
         lat_angle, lon_angle, distance = astrometric.frame_latlon(ecliptic_frame)
         lon_deg = lon_angle.degrees % 360.0
 
         # Retrograde detection: compare longitudes 1 hour before and after
+        # NOTE: must build new Time objects; we can't do t +/- float directly.
         dt_days = 1.0 / 24.0
-        astrom_past = earth.at(t - dt_days).observe(target)
-        astrom_future = earth.at(t + dt_days).observe(target)
+        t_past = ts.tt_jd(t.tt - dt_days)
+        t_future = ts.tt_jd(t.tt + dt_days)
+
+        astrom_past = earth.at(t_past).observe(target)
+        astrom_future = earth.at(t_future).observe(target)
 
         _, lon_past_angle, _ = astrom_past.frame_latlon(ecliptic_frame)
         _, lon_future_angle, _ = astrom_future.frame_latlon(ecliptic_frame)
