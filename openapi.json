@@ -1,0 +1,474 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Astro Brain Backend API",
+    "version": "1.0.0",
+    "description": "Astrology backend for a custom GPT, powered by Skyfield + DE421."
+  },
+  "servers": [
+    {
+      "url": "https://https://astro-brain-backend-production.up.railway.app/",
+      "description": "Railway deployment"
+    }
+  ],
+  "paths": {
+    "/chart": {
+      "post": {
+        "operationId": "getChart",
+        "summary": "Compute a single astrology chart",
+        "description": "Returns a full chart (asc, mc, planets, houses, node, moon phase, aspects) for a given date, time, timezone and location.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chart computed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChartResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transits": {
+      "post": {
+        "operationId": "getTransits",
+        "summary": "Compute transit aspects to a natal chart",
+        "description": "Returns natal chart, transit chart, and aspects between natal and transit planets.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transits computed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransitResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/synastry": {
+      "post": {
+        "operationId": "getSynastry",
+        "summary": "Compute synastry aspects between two charts",
+        "description": "Returns two natal charts and the aspects between their planets.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SynastryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Synastry computed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SynastryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/composite": {
+      "post": {
+        "operationId": "getComposite",
+        "summary": "Compute a composite chart between two natal charts",
+        "description": "Returns two natal charts and the midpoint composite chart.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompositeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Composite chart computed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompositeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChartRequest": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "1990-05-14",
+            "description": "Date in YYYY-MM-DD format"
+          },
+          "time": {
+            "type": "string",
+            "example": "15:30",
+            "description": "Time in HH:MM (24h) format"
+          },
+          "timezone": {
+            "type": "string",
+            "example": "America/Toronto",
+            "description": "IANA timezone name"
+          },
+          "lat": {
+            "type": "number",
+            "example": 43.6532,
+            "description": "Latitude in decimal degrees"
+          },
+          "lon": {
+            "type": "number",
+            "example": -79.3832,
+            "description": "Longitude in decimal degrees (east +, west -)"
+          }
+        },
+        "required": ["date", "time", "timezone", "lat", "lon"]
+      },
+      "ChartResponse": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string",
+            "example": "skyfield_de421"
+          },
+          "input": {
+            "$ref": "#/components/schemas/ChartRequest"
+          },
+          "chart": {
+            "type": "object",
+            "properties": {
+              "asc": {
+                "type": "number",
+                "description": "Ascendant longitude in degrees"
+              },
+              "mc": {
+                "type": "number",
+                "description": "Midheaven longitude in degrees"
+              },
+              "planets": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "lon": {
+                      "type": "number",
+                      "description": "Ecliptic longitude in degrees"
+                    },
+                    "retrograde": {
+                      "type": "boolean",
+                      "description": "True if planet is retrograde"
+                    }
+                  },
+                  "required": ["lon", "retrograde"]
+                },
+                "description": "Planet positions by name (sun, moon, mercury, venus, ...)"
+              },
+              "houses": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "Whole-sign house cusps in degrees, keys '1'..'12'"
+              },
+              "true_node": {
+                "type": "object",
+                "properties": {
+                  "lon": {
+                    "type": "number"
+                  },
+                  "retrograde": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["lon", "retrograde"]
+              },
+              "moon_phase": {
+                "type": "object",
+                "properties": {
+                  "angle": {
+                    "type": "number",
+                    "description": "Elongation angle between Sun and Moon"
+                  },
+                  "illumination": {
+                    "type": "number",
+                    "description": "Moon illumination fraction (0–1)"
+                  },
+                  "phase_name": {
+                    "type": "string",
+                    "description": "Moon phase label"
+                  }
+                },
+                "required": ["angle", "illumination", "phase_name"]
+              },
+              "aspects": {
+                "type": "array",
+                "description": "List of aspects between planets in this chart",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "p1": {
+                      "type": "string",
+                      "description": "First planet name"
+                    },
+                    "p2": {
+                      "type": "string",
+                      "description": "Second planet name"
+                    },
+                    "type": {
+                      "type": "string",
+                      "description": "Aspect type (conjunction, sextile, square, trine, opposition)"
+                    },
+                    "angle": {
+                      "type": "number",
+                      "description": "Exact aspect angle (0, 60, 90, 120, 180)"
+                    },
+                    "orb": {
+                      "type": "number",
+                      "description": "Difference from exact angle in degrees"
+                    }
+                  },
+                  "required": ["p1", "p2", "type", "angle", "orb"]
+                }
+              }
+            },
+            "required": ["asc", "mc", "planets", "houses", "true_node", "moon_phase", "aspects"]
+          }
+        },
+        "required": ["engine", "input", "chart"]
+      },
+      "TransitRequest": {
+        "type": "object",
+        "properties": {
+          "natal": {
+            "$ref": "#/components/schemas/ChartRequest"
+          },
+          "transit": {
+            "$ref": "#/components/schemas/ChartRequest"
+          },
+          "max_orb": {
+            "type": "number",
+            "default": 2.0,
+            "description": "Maximum orb in degrees for transit aspects"
+          }
+        },
+        "required": ["natal", "transit"]
+      },
+      "TransitResponse": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string",
+            "example": "skyfield_de421"
+          },
+          "natal": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/ChartRequest"
+              },
+              "chart": {
+                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+              }
+            }
+          },
+          "transit": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/ChartRequest"
+              },
+              "chart": {
+                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+              }
+            }
+          },
+          "aspects": {
+            "type": "array",
+            "description": "Aspects between natal and transit planets",
+            "items": {
+              "type": "object",
+              "properties": {
+                "natal": {
+                  "type": "string",
+                  "description": "Natal planet name"
+                },
+                "transit": {
+                  "type": "string",
+                  "description": "Transit planet name"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "angle": {
+                  "type": "number"
+                },
+                "orb": {
+                  "type": "number"
+                }
+              },
+              "required": ["natal", "transit", "type", "angle", "orb"]
+            }
+          }
+        },
+        "required": ["engine", "natal", "transit", "aspects"]
+      },
+      "SynastryRequest": {
+        "type": "object",
+        "properties": {
+          "person1": {
+            "$ref": "#/components/schemas/ChartRequest"
+          },
+          "person2": {
+            "$ref": "#/components/schemas/ChartRequest"
+          },
+          "max_orb": {
+            "type": "number",
+            "default": 4.0,
+            "description": "Maximum orb in degrees for synastry aspects"
+          }
+        },
+        "required": ["person1", "person2"]
+      },
+      "SynastryResponse": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string"
+          },
+          "person1": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/ChartRequest"
+              },
+              "chart": {
+                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+              }
+            }
+          },
+          "person2": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/ChartRequest"
+              },
+              "chart": {
+                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+              }
+            }
+          },
+          "aspects": {
+            "type": "array",
+            "description": "Aspects between person1 and person2 planets",
+            "items": {
+              "type": "object",
+              "properties": {
+                "p1": {
+                  "type": "string"
+                },
+                "p2": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "angle": {
+                  "type": "number"
+                },
+                "orb": {
+                  "type": "number"
+                }
+              },
+              "required": ["p1", "p2", "type", "angle", "orb"]
+            }
+          }
+        },
+        "required": ["engine", "person1", "person2", "aspects"]
+      },
+      "CompositeRequest": {
+        "type": "object",
+        "properties": {
+          "person1": {
+            "$ref": "#/components/schemas/ChartRequest"
+          },
+          "person2": {
+            "$ref": "#/components/schemas/ChartRequest"
+          }
+        },
+        "required": ["person1", "person2"]
+      },
+      "CompositeResponse": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string"
+          },
+          "person1": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/ChartRequest"
+              },
+              "chart": {
+                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+              }
+            }
+          },
+          "person2": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/ChartRequest"
+              },
+              "chart": {
+                "$ref": "#/components/schemas/ChartResponse/properties/chart"
+              }
+            }
+          },
+          "composite": {
+            "$ref": "#/components/schemas/ChartResponse/properties/chart"
+          }
+        },
+        "required": ["engine", "person1", "person2", "composite"]
+      }
+    }
+  }
+}
