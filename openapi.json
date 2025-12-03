@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://astro-brain-backend-production.up.railway.app/",
+      "url": "https://astro-brain-backend-production.up.railway.app",
       "description": "Railway deployment"
     }
   ],
