@@ -547,6 +547,41 @@ def health():
     return {"status": "ok", "ephemeris_loaded": True}
 
 
+@app.get("/test-chart")
+def test_chart():
+    """Test endpoint to diagnose chart generation issues"""
+    try:
+        # Test data
+        test_payload = ChartRequest(
+            date="1990-05-14",
+            time="15:30",
+            timezone="UTC",
+            lat=51.5074,
+            lon=-0.1278
+        )
+        
+        # Try to build chart
+        chart_obj = build_chart(test_payload)
+        
+        return {
+            "status": "success",
+            "message": "Chart generation works!",
+            "chart_preview": {
+                "asc": chart_obj.get("asc"),
+                "mc": chart_obj.get("mc"),
+                "planet_count": len(chart_obj.get("planets", {}))
+            }
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
 # -------------------------------------------------------------------
 # /chart endpoint
 # -------------------------------------------------------------------
@@ -557,14 +592,16 @@ def chart(payload: ChartRequest):
     Single chart endpoint used by the custom GPT.
     """
     try:
+        logger.info(f"Received chart request: {payload.model_dump()}")
         chart_obj = build_chart(payload)
+        logger.info("Chart built successfully")
         return ChartResponse(
             engine="skyfield_de421",
             input=payload.model_dump(),
             chart=chart_obj,
         )
     except Exception as e:
-        logger.error(f"Error generating chart: {e}")
+        logger.error(f"Error generating chart: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Chart generation failed: {str(e)}")
 
 
