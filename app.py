@@ -560,7 +560,7 @@ def chart(payload: ChartRequest):
         chart_obj = build_chart(payload)
         return ChartResponse(
             engine="skyfield_de421",
-            input=payload.dict(),
+            input=payload.model_dump(),
             chart=chart_obj,
         )
     except Exception as e:
@@ -593,11 +593,11 @@ def transits(payload: TransitRequest):
         return TransitResponse(
             engine="skyfield_de421",
             natal={
-                "input": payload.natal.dict(),
+                "input": payload.natal.model_dump(),
                 "chart": natal_chart,
             },
             transit={
-                "input": payload.transit.dict(),
+                "input": payload.transit.model_dump(),
                 "chart": transit_chart,
             },
             aspects=aspects,
@@ -629,11 +629,11 @@ def synastry(payload: SynastryRequest):
         return SynastryResponse(
             engine="skyfield_de421",
             person1={
-                "input": payload.person1.dict(),
+                "input": payload.person1.model_dump(),
                 "chart": chart1,
             },
             person2={
-                "input": payload.person2.dict(),
+                "input": payload.person2.model_dump(),
                 "chart": chart2,
             },
             aspects=aspects,
@@ -661,11 +661,11 @@ def composite(payload: CompositeRequest):
         return CompositeResponse(
             engine="skyfield_de421",
             person1={
-                "input": payload.person1.dict(),
+                "input": payload.person1.model_dump(),
                 "chart": chart1,
             },
             person2={
-                "input": payload.person2.dict(),
+                "input": payload.person2.model_dump(),
                 "chart": chart2,
             },
             composite=comp_chart,
