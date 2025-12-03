@@ -1,6 +1,6 @@
 from datetime import datetime
 import math
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from dateutil import tz
 from fastapi import FastAPI, HTTPException
@@ -14,7 +14,7 @@ from skyfield.framelib import ecliptic_frame
 
 app = FastAPI(
     title="Astro Brain Backend",
-    version="0.3.0",
+    version="0.4.0",
     description="Backend service that powers the custom GPT for astrology using Skyfield + DE421.",
 )
 
@@ -76,7 +76,7 @@ class ChartResponse(BaseModel):
 
 
 # -------------------------------------------------------------------
-# Utility functions
+# Utility functions: time, asc/mc, planets
 # -------------------------------------------------------------------
 
 def parse_to_utc(date_str: str, time_str: str, timezone_str: str) -> datetime:
@@ -165,6 +165,10 @@ def compute_planets(t) -> Dict[str, Dict[str, Any]]:
     return planets
 
 
+# -------------------------------------------------------------------
+# Houses (whole-sign) and node
+# -------------------------------------------------------------------
+
 def compute_whole_sign_houses(asc_deg: float) -> Dict[str, float]:
     """
     Compute whole-sign house cusps.
@@ -214,6 +218,103 @@ def compute_true_node(t) -> Dict[str, Any]:
 
 
 # -------------------------------------------------------------------
+# Moon phase (angle, illumination, phase name)
+# -------------------------------------------------------------------
+
+def compute_moon_phase(sun_lon: float, moon_lon: float) -> Dict[str, Any]:
+    """
+    Compute moon phase based on the elongation angle between Sun and Moon.
+    Returns:
+      - angle (0–360)
+      - illumination (0–1)
+      - phase_name (string)
+    """
+    angle = (moon_lon - sun_lon) % 360.0
+    illumination = 0.5 * (1 - math.cos(math.radians(angle)))  # 0..1
+
+    # Simple naming scheme
+    if angle < 10 or angle > 350:
+        name = "New Moon"
+    elif 10 <= angle < 80:
+        name = "Waxing Crescent"
+    elif 80 <= angle < 100:
+        name = "First Quarter"
+    elif 100 <= angle < 170:
+        name = "Waxing Gibbous"
+    elif 170 <= angle < 190:
+        name = "Full Moon"
+    elif 190 <= angle < 260:
+        name = "Waning Gibbous"
+    elif 260 <= angle < 280:
+        name = "Last Quarter"
+    else:
+        name = "Waning Crescent"
+
+    return {
+        "angle": angle,
+        "illumination": illumination,
+        "phase_name": name,
+    }
+
+
+# -------------------------------------------------------------------
+# Aspects (within a single chart)
+# -------------------------------------------------------------------
+
+MAJOR_ASPECTS = {
+    0: "conjunction",
+    60: "sextile",
+    90: "square",
+    120: "trine",
+    180: "opposition",
+}
+
+
+def aspect_between(a: float, b: float, max_orb: float = 6.0):
+    """
+    Compute major aspect between two longitudes if within orb.
+    Returns dict {type, angle, orb} or None.
+    """
+    diff = abs(a - b) % 360.0
+    if diff > 180:
+        diff = 360 - diff
+
+    for exact_angle, name in MAJOR_ASPECTS.items():
+        orb = abs(diff - exact_angle)
+        if orb <= max_orb:
+            return {
+                "type": name,
+                "angle": exact_angle,
+                "orb": orb,
+            }
+    return None
+
+
+def compute_chart_aspects(planets: Dict[str, Dict[str, float]], max_orb: float = 6.0) -> List[Dict[str, Any]]:
+    """
+    Compute aspects between all planet pairs in a single chart.
+    planets: { "sun": {"lon": ...}, "moon": {"lon": ...}, ... }
+    """
+    aspects: List[Dict[str, Any]] = []
+    keys = list(planets.keys())
+
+    for i in range(len(keys)):
+        for j in range(i + 1, len(keys)):
+            p1, p2 = keys[i], keys[j]
+            a = planets[p1]["lon"]
+            b = planets[p2]["lon"]
+            asp = aspect_between(a, b, max_orb=max_orb)
+            if asp:
+                aspects.append({
+                    "p1": p1,
+                    "p2": p2,
+                    **asp
+                })
+
+    return aspects
+
+
+# -------------------------------------------------------------------
 # Basic endpoints
 # -------------------------------------------------------------------
 
@@ -243,8 +344,10 @@ def chart(payload: ChartRequest):
         "asc": ...,
         "mc": ...,
         "planets": {...},
-        "houses": {...},     # whole-sign houses
-        "true_node": {...}   # mean node, retrograde
+        "houses": {...},      # whole-sign houses
+        "true_node": {...},   # mean node, retrograde
+        "moon_phase": {...},  # angle, illumination, phase_name
+        "aspects": [...]      # major aspects between planets
       }
     }
     """
@@ -264,12 +367,22 @@ def chart(payload: ChartRequest):
     houses = compute_whole_sign_houses(asc_deg)
     true_node = compute_true_node(t)
 
+    # Moon phase (requires sun and moon longitudes)
+    if "sun" not in planets or "moon" not in planets:
+        raise HTTPException(status_code=500, detail="Sun or Moon data missing for moon phase calculation.")
+    moon_phase = compute_moon_phase(planets["sun"]["lon"], planets["moon"]["lon"])
+
+    # Aspects between planets in this chart
+    aspects = compute_chart_aspects(planets)
+
     chart_obj: Dict[str, Any] = {
         "asc": asc_deg,
         "mc": mc_deg,
         "planets": planets,
         "houses": houses,
         "true_node": true_node,
+        "moon_phase": moon_phase,
+        "aspects": aspects,
     }
 
     return ChartResponse(
