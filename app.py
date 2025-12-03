@@ -1,12 +1,20 @@
 from datetime import datetime
 import math
 from typing import Any, Dict, List
+import os
+import logging
 
 from dateutil import tz
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from skyfield.api import load
+from skyfield.api import Loader
 from skyfield.framelib import ecliptic_frame
+
+# -------------------------------------------------------------------
+# Logging setup
+# -------------------------------------------------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------
 # FastAPI app metadata
@@ -14,17 +22,27 @@ from skyfield.framelib import ecliptic_frame
 
 app = FastAPI(
     title="Astro Brain Backend",
-    version="0.6.1",
+    version="0.6.2",
     description="Backend service that powers the custom GPT for astrology using Skyfield + DE421.",
 )
 
 # -------------------------------------------------------------------
 # Skyfield setup: load timescale + ephemeris once at startup
+# Use /tmp for cache (writable on Railway and other cloud platforms)
 # -------------------------------------------------------------------
 
-ts = load.timescale()
-eph = load("de421.bsp")  # downloaded once & cached in the container
-earth = eph["earth"]
+try:
+    logger.info("Initializing Skyfield loader...")
+    load = Loader('/tmp/skyfield-data')
+    logger.info("Loading timescale...")
+    ts = load.timescale()
+    logger.info("Loading ephemeris (de421.bsp) - this may take a moment on first run...")
+    eph = load('de421.bsp')  # Auto-downloads if missing (~17MB)
+    earth = eph["earth"]
+    logger.info("Skyfield initialization complete!")
+except Exception as e:
+    logger.error(f"Failed to initialize Skyfield: {e}")
+    raise
 
 PLANET_KEYS: Dict[str, str] = {
     "sun": "sun",
@@ -517,12 +535,16 @@ def build_chart(payload: ChartRequest) -> Dict[str, Any]:
 
 @app.get("/")
 def root():
-    return {"message": "Astro Brain Backend is running."}
+    return {
+        "message": "Astro Brain Backend is running.",
+        "version": "0.6.2",
+        "status": "healthy"
+    }
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "ephemeris_loaded": True}
 
 
 # -------------------------------------------------------------------
@@ -534,12 +556,16 @@ def chart(payload: ChartRequest):
     """
     Single chart endpoint used by the custom GPT.
     """
-    chart_obj = build_chart(payload)
-    return ChartResponse(
-        engine="skyfield_de421",
-        input=payload.dict(),
-        chart=chart_obj,
-    )
+    try:
+        chart_obj = build_chart(payload)
+        return ChartResponse(
+            engine="skyfield_de421",
+            input=payload.dict(),
+            chart=chart_obj,
+        )
+    except Exception as e:
+        logger.error(f"Error generating chart: {e}")
+        raise HTTPException(status_code=500, detail=f"Chart generation failed: {str(e)}")
 
 
 # -------------------------------------------------------------------
@@ -551,30 +577,34 @@ def transits(payload: TransitRequest):
     """
     Compute transit aspects between a natal chart and a transit chart.
     """
-    natal_chart = build_chart(payload.natal)
-    transit_chart = build_chart(payload.transit)
+    try:
+        natal_chart = build_chart(payload.natal)
+        transit_chart = build_chart(payload.transit)
 
-    natal_planets = natal_chart["planets"]
-    transit_planets = transit_chart["planets"]
+        natal_planets = natal_chart["planets"]
+        transit_planets = transit_chart["planets"]
 
-    aspects = compute_transit_aspects(
-        natal_planets=natal_planets,
-        transit_planets=transit_planets,
-        max_orb=payload.max_orb,
-    )
+        aspects = compute_transit_aspects(
+            natal_planets=natal_planets,
+            transit_planets=transit_planets,
+            max_orb=payload.max_orb,
+        )
 
-    return TransitResponse(
-        engine="skyfield_de421",
-        natal={
-            "input": payload.natal.dict(),
-            "chart": natal_chart,
-        },
-        transit={
-            "input": payload.transit.dict(),
-            "chart": transit_chart,
-        },
-        aspects=aspects,
-    )
+        return TransitResponse(
+            engine="skyfield_de421",
+            natal={
+                "input": payload.natal.dict(),
+                "chart": natal_chart,
+            },
+            transit={
+                "input": payload.transit.dict(),
+                "chart": transit_chart,
+            },
+            aspects=aspects,
+        )
+    except Exception as e:
+        logger.error(f"Error generating transits: {e}")
+        raise HTTPException(status_code=500, detail=f"Transit calculation failed: {str(e)}")
 
 
 # -------------------------------------------------------------------
@@ -586,27 +616,31 @@ def synastry(payload: SynastryRequest):
     """
     Compute synastry aspects between two natal charts.
     """
-    chart1 = build_chart(payload.person1)
-    chart2 = build_chart(payload.person2)
+    try:
+        chart1 = build_chart(payload.person1)
+        chart2 = build_chart(payload.person2)
 
-    aspects = compute_synastry_aspects(
-        chart1["planets"],
-        chart2["planets"],
-        max_orb=payload.max_orb,
-    )
+        aspects = compute_synastry_aspects(
+            chart1["planets"],
+            chart2["planets"],
+            max_orb=payload.max_orb,
+        )
 
-    return SynastryResponse(
-        engine="skyfield_de421",
-        person1={
-            "input": payload.person1.dict(),
-            "chart": chart1,
-        },
-        person2={
-            "input": payload.person2.dict(),
-            "chart": chart2,
-        },
-        aspects=aspects,
-    )
+        return SynastryResponse(
+            engine="skyfield_de421",
+            person1={
+                "input": payload.person1.dict(),
+                "chart": chart1,
+            },
+            person2={
+                "input": payload.person2.dict(),
+                "chart": chart2,
+            },
+            aspects=aspects,
+        )
+    except Exception as e:
+        logger.error(f"Error generating synastry: {e}")
+        raise HTTPException(status_code=500, detail=f"Synastry calculation failed: {str(e)}")
 
 
 # -------------------------------------------------------------------
@@ -618,20 +652,35 @@ def composite(payload: CompositeRequest):
     """
     Compute a composite chart (midpoint method) between two natal charts.
     """
-    chart1 = build_chart(payload.person1)
-    chart2 = build_chart(payload.person2)
+    try:
+        chart1 = build_chart(payload.person1)
+        chart2 = build_chart(payload.person2)
 
-    comp_chart = compute_composite_chart(chart1, chart2)
+        comp_chart = compute_composite_chart(chart1, chart2)
 
-    return CompositeResponse(
-        engine="skyfield_de421",
-        person1={
-            "input": payload.person1.dict(),
-            "chart": chart1,
-        },
-        person2={
-            "input": payload.person2.dict(),
-            "chart": chart2,
-        },
-        composite=comp_chart,
-    )
+        return CompositeResponse(
+            engine="skyfield_de421",
+            person1={
+                "input": payload.person1.dict(),
+                "chart": chart1,
+            },
+            person2={
+                "input": payload.person2.dict(),
+                "chart": chart2,
+            },
+            composite=comp_chart,
+        )
+    except Exception as e:
+        logger.error(f"Error generating composite: {e}")
+        raise HTTPException(status_code=500, detail=f"Composite calculation failed: {str(e)}")
+
+
+# -------------------------------------------------------------------
+# Main entry point for Railway
+# -------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
