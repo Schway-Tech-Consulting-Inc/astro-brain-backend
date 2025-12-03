@@ -1,5 +1,10 @@
-fastapi
-uvicorn
-requests
-python-dateutil
-skyfield
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+skyfield==1.46
+python-dateutil==2.8.2
+pydantic==2.5.0
+```
+
+Create a **`Procfile`** (optional, Railway can auto-detect):
+```
+web: uvicorn main:app --host 0.0.0.0 --port $PORT
