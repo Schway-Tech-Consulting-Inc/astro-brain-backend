@@ -76,6 +76,8 @@ class ChartRequest(BaseModel):
 
 
 class ChartResponse(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     engine: str
     input: Dict[str, Any]
     chart: Dict[str, Any]
@@ -91,6 +93,8 @@ class TransitRequest(BaseModel):
 
 
 class TransitResponse(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     engine: str
     natal: Dict[str, Any]
     transit: Dict[str, Any]
@@ -107,6 +111,8 @@ class SynastryRequest(BaseModel):
 
 
 class SynastryResponse(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     engine: str
     person1: Dict[str, Any]
     person2: Dict[str, Any]
@@ -122,6 +128,8 @@ class CompositeRequest(BaseModel):
 
 
 class CompositeResponse(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     engine: str
     person1: Dict[str, Any]
     person2: Dict[str, Any]
