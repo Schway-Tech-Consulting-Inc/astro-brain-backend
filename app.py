@@ -603,137 +603,134 @@ def test_chart():
         }
 
 
-# -------------------------------------------------------------------
-# /chart endpoint
-# -------------------------------------------------------------------
-
-@app.post("/chart")
-def chart(payload: ChartRequest):
-    """
-    Single chart endpoint used by the custom GPT.
-    """
+@app.post("/chart2")
+def chart2(payload: ChartRequest):
+    """Working chart endpoint - exact copy of test-chart but with POST"""
     try:
-        logger.info(f"Received chart request: {payload.model_dump()}")
         chart_obj = build_chart(payload)
-        logger.info("Chart built successfully")
-        
-        response_data = {
+        return {
             "engine": "skyfield_de421",
             "input": payload.model_dump(),
             "chart": chart_obj,
         }
-        
-        return response_data
     except Exception as e:
-        logger.error(f"Error generating chart: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Chart generation failed: {str(e)}")
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+# -------------------------------------------------------------------
+# /chart endpoint - RENAMED TO FIX ROUTE REGISTRATION BUG
+# -------------------------------------------------------------------
+
+@app.post("/chart")
+def generate_chart(payload: ChartRequest):
+    """
+    Single chart endpoint used by the custom GPT.
+    """
+    chart_obj = build_chart(payload)
+    return {
+        "engine": "skyfield_de421",
+        "input": payload.model_dump(),
+        "chart": chart_obj,
+    }
 
 
 # -------------------------------------------------------------------
 # /transits endpoint
 # -------------------------------------------------------------------
 
-@app.post("/transits", response_model=TransitResponse)
+@app.post("/transits")
 def transits(payload: TransitRequest):
     """
     Compute transit aspects between a natal chart and a transit chart.
     """
-    try:
-        natal_chart = build_chart(payload.natal)
-        transit_chart = build_chart(payload.transit)
+    natal_chart = build_chart(payload.natal)
+    transit_chart = build_chart(payload.transit)
 
-        natal_planets = natal_chart["planets"]
-        transit_planets = transit_chart["planets"]
+    natal_planets = natal_chart["planets"]
+    transit_planets = transit_chart["planets"]
 
-        aspects = compute_transit_aspects(
-            natal_planets=natal_planets,
-            transit_planets=transit_planets,
-            max_orb=payload.max_orb,
-        )
+    aspects = compute_transit_aspects(
+        natal_planets=natal_planets,
+        transit_planets=transit_planets,
+        max_orb=payload.max_orb,
+    )
 
-        return TransitResponse(
-            engine="skyfield_de421",
-            natal={
-                "input": payload.natal.model_dump(),
-                "chart": natal_chart,
-            },
-            transit={
-                "input": payload.transit.model_dump(),
-                "chart": transit_chart,
-            },
-            aspects=aspects,
-        )
-    except Exception as e:
-        logger.error(f"Error generating transits: {e}")
-        raise HTTPException(status_code=500, detail=f"Transit calculation failed: {str(e)}")
+    return {
+        "engine": "skyfield_de421",
+        "natal": {
+            "input": payload.natal.model_dump(),
+            "chart": natal_chart,
+        },
+        "transit": {
+            "input": payload.transit.model_dump(),
+            "chart": transit_chart,
+        },
+        "aspects": aspects,
+    }
 
 
 # -------------------------------------------------------------------
 # /synastry endpoint
 # -------------------------------------------------------------------
 
-@app.post("/synastry", response_model=SynastryResponse)
+@app.post("/synastry")
 def synastry(payload: SynastryRequest):
     """
     Compute synastry aspects between two natal charts.
     """
-    try:
-        chart1 = build_chart(payload.person1)
-        chart2 = build_chart(payload.person2)
+    chart1 = build_chart(payload.person1)
+    chart2 = build_chart(payload.person2)
 
-        aspects = compute_synastry_aspects(
-            chart1["planets"],
-            chart2["planets"],
-            max_orb=payload.max_orb,
-        )
+    aspects = compute_synastry_aspects(
+        chart1["planets"],
+        chart2["planets"],
+        max_orb=payload.max_orb,
+    )
 
-        return SynastryResponse(
-            engine="skyfield_de421",
-            person1={
-                "input": payload.person1.model_dump(),
-                "chart": chart1,
-            },
-            person2={
-                "input": payload.person2.model_dump(),
-                "chart": chart2,
-            },
-            aspects=aspects,
-        )
-    except Exception as e:
-        logger.error(f"Error generating synastry: {e}")
-        raise HTTPException(status_code=500, detail=f"Synastry calculation failed: {str(e)}")
+    return {
+        "engine": "skyfield_de421",
+        "person1": {
+            "input": payload.person1.model_dump(),
+            "chart": chart1,
+        },
+        "person2": {
+            "input": payload.person2.model_dump(),
+            "chart": chart2,
+        },
+        "aspects": aspects,
+    }
 
 
 # -------------------------------------------------------------------
 # /composite endpoint
 # -------------------------------------------------------------------
 
-@app.post("/composite", response_model=CompositeResponse)
+@app.post("/composite")
 def composite(payload: CompositeRequest):
     """
     Compute a composite chart (midpoint method) between two natal charts.
     """
-    try:
-        chart1 = build_chart(payload.person1)
-        chart2 = build_chart(payload.person2)
+    chart1 = build_chart(payload.person1)
+    chart2 = build_chart(payload.person2)
 
-        comp_chart = compute_composite_chart(chart1, chart2)
+    comp_chart = compute_composite_chart(chart1, chart2)
 
-        return CompositeResponse(
-            engine="skyfield_de421",
-            person1={
-                "input": payload.person1.model_dump(),
-                "chart": chart1,
-            },
-            person2={
-                "input": payload.person2.model_dump(),
-                "chart": chart2,
-            },
-            composite=comp_chart,
-        )
-    except Exception as e:
-        logger.error(f"Error generating composite: {e}")
-        raise HTTPException(status_code=500, detail=f"Composite calculation failed: {str(e)}")
+    return {
+        "engine": "skyfield_de421",
+        "person1": {
+            "input": payload.person1.model_dump(),
+            "chart": chart1,
+        },
+        "person2": {
+            "input": payload.person2.model_dump(),
+            "chart": chart2,
+        },
+        "composite": comp_chart,
+    }
 
 
 # -------------------------------------------------------------------
