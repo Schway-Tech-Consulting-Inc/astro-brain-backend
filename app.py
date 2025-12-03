@@ -607,7 +607,7 @@ def test_chart():
 # /chart endpoint
 # -------------------------------------------------------------------
 
-@app.post("/chart", response_model=ChartResponse)
+@app.post("/chart")
 def chart(payload: ChartRequest):
     """
     Single chart endpoint used by the custom GPT.
@@ -616,11 +616,14 @@ def chart(payload: ChartRequest):
         logger.info(f"Received chart request: {payload.model_dump()}")
         chart_obj = build_chart(payload)
         logger.info("Chart built successfully")
-        return ChartResponse(
-            engine="skyfield_de421",
-            input=payload.model_dump(),
-            chart=chart_obj,
-        )
+        
+        response_data = {
+            "engine": "skyfield_de421",
+            "input": payload.model_dump(),
+            "chart": chart_obj,
+        }
+        
+        return response_data
     except Exception as e:
         logger.error(f"Error generating chart: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Chart generation failed: {str(e)}")
