@@ -14,7 +14,7 @@ from skyfield.framelib import ecliptic_frame
 
 app = FastAPI(
     title="Astro Brain Backend",
-    version="0.4.0",
+    version="0.5.0",
     description="Backend service that powers the custom GPT for astrology using Skyfield + DE421.",
 )
 
@@ -48,15 +48,7 @@ OBLIQUITY_DEG = 23.4392911  # mean obliquity of the ecliptic
 
 class ChartRequest(BaseModel):
     """
-    Input for the /chart endpoint.
-    Example:
-    {
-        "date": "2025-11-27",
-        "time": "12:00",
-        "timezone": "UTC",
-        "lat": 51.5074,
-        "lon": -0.1278
-    }
+    Input for the /chart endpoint and for nested natal/transit charts.
     """
     date: str = Field(..., example="2025-11-27")  # YYYY-MM-DD
     time: str = Field(..., example="12:00")       # HH:MM (24h)
@@ -68,11 +60,32 @@ class ChartRequest(BaseModel):
 class ChartResponse(BaseModel):
     """
     Output for /chart.
-    Flexible so we can evolve 'chart' structure over time.
     """
     engine: str
     input: Dict[str, Any]
     chart: Dict[str, Any]
+
+
+class TransitRequest(BaseModel):
+    """
+    Input for /transits.
+    natal: natal chart details
+    transit: transit chart details (often 'now', but can be any date)
+    max_orb: maximum orb for transit aspects (in degrees)
+    """
+    natal: ChartRequest
+    transit: ChartRequest
+    max_orb: float = Field(default=2.0, example=2.0)
+
+
+class TransitResponse(BaseModel):
+    """
+    Output for /transits.
+    """
+    engine: str
+    natal: Dict[str, Any]
+    transit: Dict[str, Any]
+    aspects: List[Dict[str, Any]]
 
 
 # -------------------------------------------------------------------
@@ -258,7 +271,7 @@ def compute_moon_phase(sun_lon: float, moon_lon: float) -> Dict[str, Any]:
 
 
 # -------------------------------------------------------------------
-# Aspects (within a single chart)
+# Aspects (within a single chart + transits)
 # -------------------------------------------------------------------
 
 MAJOR_ASPECTS = {
@@ -314,6 +327,83 @@ def compute_chart_aspects(planets: Dict[str, Dict[str, float]], max_orb: float =
     return aspects
 
 
+def compute_transit_aspects(
+    natal_planets: Dict[str, Dict[str, float]],
+    transit_planets: Dict[str, Dict[str, float]],
+    max_orb: float = 2.0,
+) -> List[Dict[str, Any]]:
+    """
+    Compute aspects between natal and transit planets.
+    Returns:
+      [
+        {
+          "natal": "sun",
+          "transit": "saturn",
+          "type": "square",
+          "angle": 90,
+          "orb": 1.2
+        },
+        ...
+      ]
+    """
+    aspects: List[Dict[str, Any]] = []
+
+    for n_name, n_data in natal_planets.items():
+        for t_name, t_data in transit_planets.items():
+            a = n_data["lon"]
+            b = t_data["lon"]
+            asp = aspect_between(a, b, max_orb=max_orb)
+            if asp:
+                aspects.append({
+                    "natal": n_name,
+                    "transit": t_name,
+                    **asp
+                })
+
+    return aspects
+
+
+# -------------------------------------------------------------------
+# Core chart builder (used by /chart and /transits)
+# -------------------------------------------------------------------
+
+def build_chart(payload: ChartRequest) -> Dict[str, Any]:
+    """
+    Build a full chart object (without wrapping in engine/input).
+    Reused by /chart and /transits.
+    """
+    if not (-90.0 <= payload.lat <= 90.0):
+        raise HTTPException(status_code=400, detail="Latitude must be between -90 and 90 degrees.")
+    if not (-180.0 <= payload.lon <= 180.0):
+        raise HTTPException(status_code=400, detail="Longitude must be between -180 and 180 degrees.")
+
+    dt_utc = parse_to_utc(payload.date, payload.time, payload.timezone)
+    t = ts.from_datetime(dt_utc)
+
+    asc_deg, mc_deg = compute_asc_mc(t, payload.lat, payload.lon)
+    planets = compute_planets(t)
+    houses = compute_whole_sign_houses(asc_deg)
+    true_node = compute_true_node(t)
+
+    # Moon phase (requires sun and moon longitudes)
+    if "sun" not in planets or "moon" not in planets:
+        raise HTTPException(status_code=500, detail="Sun or Moon data missing for moon phase calculation.")
+    moon_phase = compute_moon_phase(planets["sun"]["lon"], planets["moon"]["lon"])
+
+    aspects = compute_chart_aspects(planets)
+
+    chart_obj: Dict[str, Any] = {
+        "asc": asc_deg,
+        "mc": mc_deg,
+        "planets": planets,
+        "houses": houses,
+        "true_node": true_node,
+        "moon_phase": moon_phase,
+        "aspects": aspects,
+    }
+    return chart_obj
+
+
 # -------------------------------------------------------------------
 # Basic endpoints
 # -------------------------------------------------------------------
@@ -329,64 +419,52 @@ def health():
 
 
 # -------------------------------------------------------------------
-# Main astrology endpoint: /chart
+# /chart endpoint
 # -------------------------------------------------------------------
 
 @app.post("/chart", response_model=ChartResponse)
 def chart(payload: ChartRequest):
     """
-    Compute a chart using Skyfield + DE421.
-    Structure is designed to match what your custom GPT expects:
-    {
-      "engine": "skyfield_de421",
-      "input": {...},
-      "chart": {
-        "asc": ...,
-        "mc": ...,
-        "planets": {...},
-        "houses": {...},      # whole-sign houses
-        "true_node": {...},   # mean node, retrograde
-        "moon_phase": {...},  # angle, illumination, phase_name
-        "aspects": [...]      # major aspects between planets
-      }
-    }
+    Single chart endpoint used by the custom GPT.
     """
-
-    if not (-90.0 <= payload.lat <= 90.0):
-        raise HTTPException(status_code=400, detail="Latitude must be between -90 and 90 degrees.")
-    if not (-180.0 <= payload.lon <= 180.0):
-        raise HTTPException(status_code=400, detail="Longitude must be between -180 and 180 degrees.")
-
-    # Convert input date/time/timezone to UTC and then to Skyfield Time
-    dt_utc = parse_to_utc(payload.date, payload.time, payload.timezone)
-    t = ts.from_datetime(dt_utc)
-
-    # Core computations
-    asc_deg, mc_deg = compute_asc_mc(t, payload.lat, payload.lon)
-    planets = compute_planets(t)
-    houses = compute_whole_sign_houses(asc_deg)
-    true_node = compute_true_node(t)
-
-    # Moon phase (requires sun and moon longitudes)
-    if "sun" not in planets or "moon" not in planets:
-        raise HTTPException(status_code=500, detail="Sun or Moon data missing for moon phase calculation.")
-    moon_phase = compute_moon_phase(planets["sun"]["lon"], planets["moon"]["lon"])
-
-    # Aspects between planets in this chart
-    aspects = compute_chart_aspects(planets)
-
-    chart_obj: Dict[str, Any] = {
-        "asc": asc_deg,
-        "mc": mc_deg,
-        "planets": planets,
-        "houses": houses,
-        "true_node": true_node,
-        "moon_phase": moon_phase,
-        "aspects": aspects,
-    }
-
+    chart_obj = build_chart(payload)
     return ChartResponse(
         engine="skyfield_de421",
         input=payload.dict(),
         chart=chart_obj,
+    )
+
+
+# -------------------------------------------------------------------
+# /transits endpoint
+# -------------------------------------------------------------------
+
+@app.post("/transits", response_model=TransitResponse)
+def transits(payload: TransitRequest):
+    """
+    Compute transit aspects between a natal chart and a transit chart.
+    """
+    natal_chart = build_chart(payload.natal)
+    transit_chart = build_chart(payload.transit)
+
+    natal_planets = natal_chart["planets"]
+    transit_planets = transit_chart["planets"]
+
+    aspects = compute_transit_aspects(
+        natal_planets=natal_planets,
+        transit_planets=transit_planets,
+        max_orb=payload.max_orb,
+    )
+
+    return TransitResponse(
+        engine="skyfield_de421",
+        natal={
+            "input": payload.natal.dict(),
+            "chart": natal_chart,
+        },
+        transit={
+            "input": payload.transit.dict(),
+            "chart": transit_chart,
+        },
+        aspects=aspects,
     )
